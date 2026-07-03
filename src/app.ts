@@ -11,10 +11,7 @@ import { listProjects, dimensionCounts, topQuotes } from './config/db.js';
 import type { ResearchEvent, ResearchPlatform } from './services/research.types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const webRoot = path.join(
-  process.env.VERCEL ? process.cwd() : path.join(__dirname, '..'),
-  process.env.VERCEL ? 'src/web' : 'web'
-);
+const webRoot = path.join(__dirname, 'web');
 
 const app = express();
 app.use(express.json());
