@@ -8,6 +8,7 @@ import type {
   ResearchEvent,
   ResearchStage,
   ResearchJobCounters,
+  ResearchPlatform,
 } from './research.types.js';
 
 class ResearchEventsService extends EventEmitter {
@@ -22,13 +23,19 @@ class ResearchEventsService extends EventEmitter {
     return this.activeJobs.has(jobId);
   }
 
-  emitResearchStarted(jobId: string, projectId: string, theme: string): void {
+  emitResearchStarted(
+    jobId: string,
+    projectId: string,
+    theme: string,
+    platform: ResearchPlatform
+  ): void {
     this.activeJobs.add(jobId);
     const event: ResearchEvent = {
       type: 'research:started',
       jobId,
       projectId,
       theme,
+      platform,
       timestamp: new Date().toISOString(),
     };
     this.emit('research:event', event);

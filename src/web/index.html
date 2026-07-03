@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Audience Research</title>
+    <style>
+      :root {
+        --bg: #0b0b0f;
+        --panel: #14141b;
+        --panel-2: #1b1b25;
+        --border: #26263340;
+        --border-solid: #2b2b38;
+        --text: #e7e7ee;
+        --muted: #9a9aab;
+        --faint: #6a6a7a;
+        --accent: #7c6cff;
+        --accent-dim: #7c6cff22;
+        --green: #35c07f;
+        --red: #ef5f6b;
+        --yellow: #e9b64a;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+
+      .app { display: grid; grid-template-columns: 340px 1fr; height: 100vh; }
+
+      /* Sidebar */
+      .sidebar {
+        border-right: 1px solid var(--border-solid);
+        background: var(--panel);
+        display: flex; flex-direction: column; min-height: 0;
+      }
+      .brand { padding: 18px 20px; border-bottom: 1px solid var(--border-solid); }
+      .brand h1 { margin: 0; font-size: 15px; letter-spacing: -0.01em; }
+      .brand p { margin: 4px 0 0; color: var(--faint); font-size: 12px; }
+
+      form { padding: 18px 20px; border-bottom: 1px solid var(--border-solid); }
+      label { display: block; font-size: 12px; color: var(--muted); margin: 0 0 6px; }
+      .field { margin-bottom: 14px; }
+      input, textarea {
+        width: 100%; background: var(--panel-2); border: 1px solid var(--border-solid);
+        color: var(--text); border-radius: 9px; padding: 9px 11px; font-size: 13px;
+        resize: vertical; font-family: inherit;
+      }
+      input:focus, textarea:focus { outline: none; border-color: var(--accent); }
+      textarea { min-height: 108px; line-height: 1.6; }
+      .hint { color: var(--faint); font-size: 11px; margin-top: 5px; }
+      .platform-toggle {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+        background: var(--panel-2); border: 1px solid var(--border-solid);
+        border-radius: 9px; padding: 4px;
+      }
+      .platform-toggle button {
+        width: auto; background: transparent; color: var(--muted);
+        border-radius: 6px; padding: 8px; font-size: 12px; font-weight: 600;
+      }
+      .platform-toggle button.active {
+        background: var(--accent-dim); color: var(--text);
+      }
+      .platform-toggle button[data-platform="tiktok"].active {
+        background: #fe2c5522; color: #ff6b8a;
+      }
+      .badge {
+        display: inline-block; font-size: 10px; font-weight: 600;
+        text-transform: uppercase; letter-spacing: .04em;
+        padding: 2px 6px; border-radius: 4px; margin-right: 6px;
+        vertical-align: 1px;
+      }
+      .badge.reddit { background: var(--accent-dim); color: #b9afff; }
+      .badge.tiktok { background: #fe2c5522; color: #ff6b8a; }
+      button {
+        width: 100%; background: var(--accent); color: white; border: 0;
+        border-radius: 9px; padding: 11px; font-size: 13px; font-weight: 600;
+        cursor: pointer; transition: opacity .15s;
+      }
+      button:hover { opacity: .9; }
+      button:disabled { opacity: .45; cursor: not-allowed; }
+
+      .projects { flex: 1; overflow-y: auto; padding: 8px; min-height: 0; }
+      .projects .head { padding: 10px 12px 6px; font-size: 11px; text-transform: uppercase;
+        letter-spacing: .06em; color: var(--faint); }
+      .proj {
+        padding: 10px 12px; border-radius: 9px; cursor: pointer; margin-bottom: 2px;
+      }
+      .proj:hover { background: var(--panel-2); }
+      .proj.active { background: var(--accent-dim); }
+      .proj .t { font-weight: 600; font-size: 13px; }
+      .proj .m { color: var(--faint); font-size: 11px; margin-top: 2px; }
+
+      /* Main */
+      .main { overflow-y: auto; min-height: 0; }
+      .inner { max-width: 900px; margin: 0 auto; padding: 28px 32px 80px; }
+
+      /* Run panel */
+      .run { background: var(--panel); border: 1px solid var(--border-solid);
+        border-radius: 14px; padding: 18px 20px; margin-bottom: 24px; display: none; }
+      .run.show { display: block; }
+      .run-platform {
+        display: flex; align-items: center; gap: 8px; margin-bottom: 12px;
+        font-size: 13px; font-weight: 600;
+      }
+      .run-platform .label { color: var(--muted); font-weight: 500; }
+      .platform-toggle.disabled { opacity: .5; pointer-events: none; }
+      .stagebar { display: flex; gap: 6px; margin-bottom: 14px; }
+      .stagebar .s { flex: 1; font-size: 11px; text-align: center; padding: 6px 0;
+        border-radius: 7px; background: var(--panel-2); color: var(--faint); }
+      .stagebar .s.done { color: var(--green); }
+      .stagebar .s.active { color: var(--text); background: var(--accent-dim); }
+      .progress { height: 6px; background: var(--panel-2); border-radius: 4px; overflow: hidden; }
+      .progress > i { display: block; height: 100%; width: 0; background: var(--accent);
+        transition: width .3s; }
+      .log { margin-top: 14px; max-height: 160px; overflow-y: auto; font-size: 12px;
+        color: var(--muted); }
+      .log div { padding: 1px 0; }
+      .log .warn { color: var(--yellow); }
+      .log .ok { color: var(--green); }
+
+      /* Results */
+      .rhead { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+      .rhead h2 { margin: 0; font-size: 22px; letter-spacing: -0.02em; }
+      .stats { display: flex; gap: 18px; color: var(--muted); font-size: 13px; margin: 10px 0 26px; }
+      .stats b { color: var(--text); }
+
+      .section-title { font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+        color: var(--faint); margin: 26px 0 12px; }
+
+      .dims { display: grid; grid-template-columns: 1fr 1fr; gap: 20px 32px; }
+      .dim h4 { margin: 0 0 8px; font-size: 13px; color: var(--accent); }
+      .row { display: grid; grid-template-columns: 30px 1fr; gap: 10px; align-items: center;
+        margin-bottom: 5px; }
+      .row .n { text-align: right; color: var(--muted); font-size: 12px; }
+      .row .bar { position: relative; height: 20px; background: var(--panel-2);
+        border-radius: 5px; overflow: hidden; }
+      .row .bar > i { position: absolute; inset: 0; width: var(--w); background: var(--accent-dim);
+        border-left: 2px solid var(--accent); }
+      .row .bar > span { position: absolute; left: 8px; top: 50%; transform: translateY(-50%);
+        font-size: 12px; white-space: nowrap; }
+
+      .quote { border: 1px solid var(--border-solid); background: var(--panel);
+        border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; }
+      .quote .meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+        margin-bottom: 8px; font-size: 11px; }
+      .tag { padding: 2px 8px; border-radius: 20px; background: var(--panel-2);
+        color: var(--muted); }
+      .tag.sig { background: var(--accent-dim); color: #b9afff; font-weight: 600; }
+      .tag.emo { color: var(--yellow); }
+      .quote p { margin: 0; font-size: 14px; line-height: 1.55; }
+      .quote .src { margin-top: 8px; font-size: 11px; color: var(--faint); }
+
+      .empty { color: var(--faint); text-align: center; padding: 80px 20px; }
+      .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #ffffff55;
+        border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite;
+        vertical-align: -1px; margin-right: 7px; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand">
+          <h1>Audience Research</h1>
+          <p id="brandSub">Reddit · SerpAPI · Gemini · SQLite</p>
+        </div>
+        <form id="form">
+          <div class="field">
+            <label>Platform</label>
+            <div class="platform-toggle" id="platformToggle">
+              <button type="button" data-platform="reddit" class="active">Reddit</button>
+              <button type="button" data-platform="tiktok">TikTok</button>
+            </div>
+          </div>
+          <div class="field">
+            <label>Theme</label>
+            <input id="theme" placeholder="e.g. Working moms" />
+          </div>
+          <div class="field">
+            <label>Definition <span style="color:var(--faint)">(optional)</span></label>
+            <input id="def" placeholder="One line for relevance filtering" />
+          </div>
+          <div class="field">
+            <label>Search queries — one per line</label>
+            <textarea id="queries" placeholder="working mom burnout&#10;juggling work and kids exhausted&#10;mom guilt going back to work"></textarea>
+            <div class="hint" id="queryHint">8–15 queries. Each uses ~3 SerpAPI searches.</div>
+          </div>
+          <button id="runBtn" type="submit">Run research</button>
+        </form>
+        <div class="projects" id="projects">
+          <div class="head">Past runs</div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <div class="inner">
+          <div class="run" id="runPanel">
+            <div class="run-platform" id="runPlatform" hidden>
+              <span class="label">Running on</span>
+              <span id="runPlatformBadge"></span>
+            </div>
+            <div class="stagebar" id="stagebar">
+              <div class="s" data-stage="search">Search</div>
+              <div class="s" data-stage="extract">Extract</div>
+              <div class="s" data-stage="qc">QC</div>
+              <div class="s" data-stage="enrich">Enrich</div>
+            </div>
+            <div class="progress"><i id="bar"></i></div>
+            <div class="log" id="log"></div>
+          </div>
+          <div id="results">
+            <div class="empty">Pick a past run on the left, or start a new one.</div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script>
+      const $ = (s) => document.querySelector(s);
+      let activeProject = null;
+      let selectedPlatform = 'reddit';
+
+      const PLATFORM_UI = {
+        reddit: {
+          brandSub: 'Reddit · SerpAPI · Gemini · SQLite',
+          hint: '8–15 queries. Each uses ~3 SerpAPI searches.',
+          placeholder: 'working mom burnout\njuggling work and kids exhausted\nmom guilt going back to work',
+        },
+        tiktok: {
+          brandSub: 'TikTok · ScrapeCreators · Gemini · SQLite',
+          hint: '8–12 short keyword phrases. ~200 ScrapeCreators credits per full run.',
+          placeholder: 'working mom burnout\n#workingmom struggle\nmissed call business owner',
+        },
+      };
+
+      function setPlatform(platform) {
+        selectedPlatform = platform;
+        document.querySelectorAll('#platformToggle button').forEach((btn) => {
+          btn.classList.toggle('active', btn.dataset.platform === platform);
+        });
+        $('#platformToggle').classList.remove('disabled');
+        const ui = PLATFORM_UI[platform];
+        $('#brandSub').textContent = ui.brandSub;
+        $('#queryHint').textContent = ui.hint;
+        $('#queries').placeholder = ui.placeholder;
+        updateRunButtonLabel();
+      }
+
+      function updateRunButtonLabel() {
+        const label = selectedPlatform === 'tiktok' ? 'Run TikTok research' : 'Run Reddit research';
+        if (!$('#runBtn').disabled) $('#runBtn').textContent = label;
+      }
+
+      function showRunPlatform(platform) {
+        $('#runPlatform').hidden = false;
+        $('#runPlatformBadge').innerHTML = platformBadge(platform);
+      }
+
+      function setPlatformLocked(locked) {
+        $('#platformToggle').classList.toggle('disabled', locked);
+      }
+
+      document.querySelectorAll('#platformToggle button').forEach((btn) => {
+        btn.addEventListener('click', () => setPlatform(btn.dataset.platform));
+      });
+      updateRunButtonLabel();
+
+      function platformBadge(platform) {
+        if (!platform) return '';
+        const label = platform === 'tiktok' ? 'TikTok' : 'Reddit';
+        return '<span class="badge ' + platform + '">' + label + '</span>';
+      }
+
+      function sourceLabel(q) {
+        if (q.platform === 'tiktok') {
+          const handle = q.subreddit || '?';
+          return handle.startsWith('@') ? handle : '@' + handle;
+        }
+        return 'r/' + (q.subreddit || '?');
+      }
+
+      function dimLabel(name, platform) {
+        if (name === 'subreddit') return platform === 'tiktok' ? 'creator' : 'subreddit';
+        return name.replace(/_/g, ' ');
+      }
+
+      // ---- SSE ----
+      const es = new EventSource('/api/stream');
+      es.onmessage = (e) => handleEvent(JSON.parse(e.data));
+
+      const stageEls = {};
+      document.querySelectorAll('.stagebar .s').forEach((el) => (stageEls[el.dataset.stage] = el));
+      const stages = ['search', 'extract', 'qc', 'enrich'];
+
+      function resetStages() {
+        stages.forEach((s) => (stageEls[s].className = 's'));
+        $('#bar').style.width = '0%';
+        $('#log').innerHTML = '';
+      }
+      function logLine(msg, cls) {
+        const d = document.createElement('div');
+        if (cls) d.className = cls;
+        d.textContent = msg;
+        $('#log').appendChild(d);
+        $('#log').scrollTop = $('#log').scrollHeight;
+      }
+
+      function handleEvent(ev) {
+        switch (ev.type) {
+          case 'research:started':
+            activeProject = ev.projectId;
+            resetStages();
+            showRunPlatform(ev.platform || selectedPlatform);
+            logLine('Started: ' + ev.theme + ' (' + (ev.platform || selectedPlatform) + ')');
+            break;
+          case 'research:stage_started': {
+            const idx = stages.indexOf(ev.stage);
+            stages.forEach((s, i) => {
+              stageEls[s].className = 's' + (i < idx ? ' done' : i === idx ? ' active' : '');
+            });
+            $('#bar').style.width = '0%';
+            logLine('▸ ' + ev.message);
+            break;
+          }
+          case 'research:stage_progress':
+            $('#bar').style.width = (ev.percentage || 0) + '%';
+            break;
+          case 'research:stage_completed':
+            stageEls[ev.stage].className = 's done';
+            $('#bar').style.width = '100%';
+            logLine('✓ ' + (ev.message || ev.stage), 'ok');
+            break;
+          case 'research:log':
+            logLine(ev.message, ev.level === 'warn' ? 'warn' : ev.level === 'error' ? 'warn' : '');
+            break;
+          case 'research:completed':
+            logLine('✓ Done — ' + ev.stats.kept + ' kept, ' + ev.stats.enriched + ' enriched', 'ok');
+            setRunning(false);
+            loadProjects().then(() => activeProject && openProject(activeProject));
+            break;
+          case 'research:error':
+            logLine('✗ ' + ev.error, 'warn');
+            setRunning(false);
+            break;
+        }
+      }
+
+      function setRunning(on) {
+        $('#runBtn').disabled = on;
+        setPlatformLocked(on);
+        $('#runBtn').innerHTML = on
+          ? '<span class="spinner"></span>Running on ' + (selectedPlatform === 'tiktok' ? 'TikTok' : 'Reddit') + '…'
+          : (selectedPlatform === 'tiktok' ? 'Run TikTok research' : 'Run Reddit research');
+      }
+
+      // ---- Run ----
+      $('#form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const theme = $('#theme').value.trim();
+        const theme_definition = $('#def').value.trim();
+        const queries = $('#queries').value.split('\n').map((s) => s.trim()).filter(Boolean);
+        if (!theme || queries.length === 0) return;
+        $('#runPanel').classList.add('show');
+        showRunPlatform(selectedPlatform);
+        setRunning(true);
+        logLine('Submitting ' + selectedPlatform + ' run…');
+        const r = await fetch('/api/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ theme, theme_definition, queries, platform: selectedPlatform }),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          logLine('✗ ' + (j.error || 'Failed to start'), 'warn');
+          setRunning(false);
+          return;
+        }
+        const j = await r.json().catch(() => ({}));
+        if (j.platform && j.platform !== selectedPlatform) {
+          logLine('✗ Server platform mismatch: sent ' + selectedPlatform + ', got ' + j.platform, 'warn');
+        } else if (j.platform) {
+          logLine('✓ Confirmed: ' + j.platform, 'ok');
+        }
+      });
+
+      // ---- Projects ----
+      async function loadProjects() {
+        const projects = await (await fetch('/api/projects')).json();
+        const box = $('#projects');
+        box.innerHTML = '<div class="head">Past runs</div>';
+        projects.forEach((p) => {
+          const el = document.createElement('div');
+          el.className = 'proj' + (p.id === activeProject ? ' active' : '');
+          el.innerHTML =
+            '<div class="t">' + platformBadge(p.platform) + '</div><div class="m">' +
+            p.kept + ' kept · ' + p.created_at.slice(0, 10) + '</div>';
+          el.querySelector('.t').append(document.createTextNode(p.theme));
+          el.onclick = () => openProject(p.id);
+          box.appendChild(el);
+        });
+      }
+
+      async function openProject(id) {
+        activeProject = id;
+        document.querySelectorAll('.proj').forEach((e) => e.classList.remove('active'));
+        const data = await (await fetch('/api/projects/' + id)).json();
+        renderResults(data);
+        loadProjects();
+      }
+
+      function bar(count, max, label) {
+        const w = Math.max(4, Math.round((count / max) * 100));
+        const div = document.createElement('div');
+        div.className = 'row';
+        div.innerHTML =
+          '<div class="n">' + count + '</div><div class="bar"><i style="--w:' + w + '%"></i><span></span></div>';
+        div.querySelector('span').textContent = label;
+        return div;
+      }
+
+      function renderResults(data) {
+        const r = $('#results');
+        if (!data.project) {
+          r.innerHTML = '<div class="empty">Project not found.</div>';
+          return;
+        }
+        r.innerHTML = '';
+        const p = data.project;
+
+        const head = document.createElement('div');
+        head.className = 'rhead';
+        const h = document.createElement('h2');
+        h.innerHTML = platformBadge(p.platform);
+        h.append(document.createTextNode(p.theme));
+        head.appendChild(h);
+        r.appendChild(head);
+
+        const stats = document.createElement('div');
+        stats.className = 'stats';
+        const platformLabel = p.platform === 'tiktok' ? 'TikTok' : p.platform === 'reddit' ? 'Reddit' : 'Unknown';
+        stats.innerHTML =
+          '<span><b>' + p.kept + '</b> kept quotes</span>' +
+          '<span><b>' + data.quotes.length + '</b> shown</span>' +
+          (p.platform ? '<span><b>' + platformLabel + '</b></span>' : '') +
+          '<span class="mono" style="color:var(--faint)">' + p.created_at.slice(0, 10) + '</span>';
+        r.appendChild(stats);
+
+        // Dimensions grouped
+        const dimNames = ['dominant_emotion', 'journey_stage', 'villain', 'subreddit'];
+        const grouped = {};
+        data.dimensions.forEach((d) => {
+          (grouped[d.dimension_name] = grouped[d.dimension_name] || []).push(d);
+        });
+        if (data.dimensions.length) {
+          const st = document.createElement('div');
+          st.className = 'section-title';
+          st.textContent = 'Pattern distribution';
+          r.appendChild(st);
+          const grid = document.createElement('div');
+          grid.className = 'dims';
+          dimNames.forEach((name) => {
+            const items = (grouped[name] || []).slice(0, 8);
+            if (!items.length) return;
+            const max = Math.max(...items.map((i) => i.count));
+            const col = document.createElement('div');
+            col.className = 'dim';
+            const t = document.createElement('h4');
+            t.textContent = dimLabel(name, p.platform);
+            col.appendChild(t);
+            items.forEach((i) => col.appendChild(bar(i.count, max, i.dimension_value)));
+            grid.appendChild(col);
+          });
+          r.appendChild(grid);
+        }
+
+        // Quotes
+        const st2 = document.createElement('div');
+        st2.className = 'section-title';
+        st2.textContent = 'Top quotes by signal';
+        r.appendChild(st2);
+        data.quotes.forEach((q) => {
+          const el = document.createElement('div');
+          el.className = 'quote';
+          const sig = q.quote_signal_score != null ? q.quote_signal_score.toFixed(2) : '?';
+          const meta = document.createElement('div');
+          meta.className = 'meta';
+          meta.innerHTML =
+            '<span class="tag sig">signal ' + sig + '</span>' +
+            (q.dominant_emotion ? '<span class="tag emo"></span>' : '') +
+            (q.villain && q.villain !== 'none' ? '<span class="tag vil"></span>' : '');
+          if (q.dominant_emotion) meta.querySelector('.emo').textContent = q.dominant_emotion;
+          if (q.villain && q.villain !== 'none')
+            meta.querySelector('.vil').textContent = 'villain: ' + q.villain;
+          el.appendChild(meta);
+          const p2 = document.createElement('p');
+          p2.textContent = '“' + q.quote_text + '”';
+          el.appendChild(p2);
+          const src = document.createElement('div');
+          src.className = 'src';
+          src.innerHTML = sourceLabel(q) + ' · <a target="_blank" rel="noopener" href="' + q.source_url + '">source ↗</a>';
+          el.appendChild(src);
+          r.appendChild(el);
+        });
+      }
+
+      loadProjects();
+    </script>
+  </body>
+</html>

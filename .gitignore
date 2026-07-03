@@ -5,3 +5,8 @@ node_modules
 .DS_Store
 dist
 .tsbuildinfo
+
+# local SQLite database
+research.db
+research.db-*
+*.sqlite

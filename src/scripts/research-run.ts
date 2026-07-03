@@ -44,6 +44,7 @@ function parseArgs(): {
   theme_definition?: string;
   client?: string;
   user_id: string;
+  platform: 'reddit' | 'tiktok';
   queries: string[];
 } {
   const args = process.argv.slice(2);
@@ -83,6 +84,7 @@ ${colors.cyan}Options:${colors.reset}
   --queries_file      ${colors.dim}(required*)${colors.reset} Path to JSON file with queries array
   --theme_definition  ${colors.dim}(optional)${colors.reset} 2-3 line definition for QC relevance
   --client            ${colors.dim}(optional)${colors.reset} Client name for the project
+  --platform          ${colors.dim}(optional)${colors.reset} reddit (default) or tiktok
   --user_id           ${colors.dim}(optional)${colors.reset} User ID (defaults to system user)
 
   ${colors.dim}* Either --queries or --queries_file must be provided${colors.reset}
@@ -130,6 +132,7 @@ ${colors.cyan}Example with queries file:${colors.reset}
     theme_definition: parsed.theme_definition,
     client: parsed.client,
     user_id: parsed.user_id || '00000000-0000-0000-0000-000000000000',
+    platform: parsed.platform === 'tiktok' ? 'tiktok' : 'reddit',
     queries,
   };
 }
@@ -236,6 +239,7 @@ ${colors.magenta}╔════════════════════
   if (args.client) {
     console.log(`   Client: ${args.client}`);
   }
+  console.log(`   Platform: ${colors.bright}${args.platform}${colors.reset}`);
   console.log(`   Queries: ${colors.bright}${args.queries.length}${colors.reset} search queries provided`);
   console.log(`   ${colors.dim}${args.queries.slice(0, 3).join(', ')}${args.queries.length > 3 ? '...' : ''}${colors.reset}`);
   console.log('');
@@ -248,6 +252,7 @@ ${colors.magenta}╔════════════════════
       theme_definition: args.theme_definition,
       client: args.client,
       queries: args.queries,
+      platform: args.platform,
     },
     args.user_id
   );
@@ -264,10 +269,10 @@ ${colors.cyan}Final Statistics:${colors.reset}
    - Project ID: ${colors.dim}${result.projectId}${colors.reset}
    - Job ID: ${colors.dim}${result.jobId}${colors.reset}
 
-${colors.green}Success!${colors.reset} Data is now available in Supabase.
-Query with Claude Desktop using:
-   - ${colors.cyan}v_research_dimension_counts${colors.reset} - Pattern sizing
-   - ${colors.cyan}v_research_top_quotes${colors.reset} - Top quotes by specificity
+${colors.green}Success!${colors.reset} Data is stored locally in SQLite (research.db).
+View results with:
+   - ${colors.cyan}pnpm research:query${colors.reset}                       - list all projects
+   - ${colors.cyan}pnpm research:query ${result.projectId}${colors.reset} - patterns + top quotes
 `);
     process.exit(0);
   } else {

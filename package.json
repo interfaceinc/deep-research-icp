@@ -1,11 +1,15 @@
 {
-  "name": "reddit-research-toolkit",
-  "version": "0.1.0",
-  "description": "Reddit research pipeline: sourcing, quote extraction, QC, and enrichment via Gemini",
+  "name": "audience-research-toolkit",
+  "version": "0.2.0",
+  "description": "Reddit + TikTok audience research pipeline with web UI",
   "type": "module",
   "private": true,
   "scripts": {
-    "research:run": "tsx src/scripts/research-run.ts",
+    "web": "node --disable-warning=ExperimentalWarning --import tsx src/server.ts",
+    "start": "node --disable-warning=ExperimentalWarning --import tsx src/server.ts",
+    "research:run": "node --disable-warning=ExperimentalWarning --import tsx src/scripts/research-run.ts",
+    "research:query": "node --disable-warning=ExperimentalWarning --import tsx src/scripts/research-query.ts",
+    "research:tiktok-verify": "node --disable-warning=ExperimentalWarning --import tsx src/scripts/tiktok-offline-verify.ts",
     "typecheck": "tsc --noEmit"
   },
   "engines": {
@@ -13,14 +17,15 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
-    "@supabase/supabase-js": "^2.45.0",
     "axios": "^1.7.0",
     "dotenv": "^16.4.0",
+    "express": "^5.2.1",
     "p-limit": "^6.1.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {
-    "@types/node": "^20.14.0",
+    "@types/express": "^5.0.6",
+    "@types/node": "^24.13.2",
     "tsx": "^4.19.0",
     "typescript": "^5.5.0"
   },

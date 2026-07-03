@@ -14,12 +14,24 @@ export const RESEARCH_DEFAULTS = {
   TARGET_PENDING: 1500,
   TARGET_KEPT: 1000,
   QC_MIN_SENTENCES: 1,
-  QC_MIN_CHARS: 140,
+  // Google snippets run ~120-150 chars; keep the floor at extraction min.
+  QC_MIN_CHARS: 100,
   GEMINI_MODEL: 'gemini-2.5-flash',
   GEMINI_CONCURRENCY: 1,
-  SCRAPE_CREATORS_CONCURRENCY: 3,
-  SCRAPE_CREATORS_DELAY_MS: 500,
+  // SerpAPI Google search settings
+  SEARCH_CONCURRENCY: 3,
+  SEARCH_PAGES_PER_QUERY: 3,
+  // TikTok / ScrapeCreators settings (credit-conscious defaults)
+  TIKTOK_SEARCH_PAGES_PER_QUERY: 2,
+  TIKTOK_MAX_VIDEOS_PER_QUERY: 8,
+  TIKTOK_MIN_COMMENT_COUNT: 15,
+  TIKTOK_COMMENT_PAGES_PER_VIDEO: 2,
+  TIKTOK_QC_MIN_CHARS: 80,
+  TIKTOK_TARGET_PENDING: 150,
+  TIKTOK_MIN_COMMENT_TEXT_CHARS: 30,
 } as const;
+
+export type ResearchPlatform = 'reddit' | 'tiktok';
 
 // =============================================================================
 // Enums (Fixed Sets for Gemini Structured Output)
@@ -84,6 +96,7 @@ export interface ResearchJobCounters {
 
 export interface ResearchJobConfig {
   search_queries: string[];
+  platform?: ResearchPlatform;
 }
 
 export interface ResearchJob {
@@ -243,6 +256,20 @@ export interface ResearchRunInput {
   theme_definition?: string;
   client?: string;
   queries: string[]; // REQUIRED - Claude always provides search queries
+  platform?: ResearchPlatform;
+}
+
+export function getPlatformDefaults(platform: ResearchPlatform = 'reddit') {
+  if (platform === 'tiktok') {
+    return {
+      targetPending: RESEARCH_DEFAULTS.TIKTOK_TARGET_PENDING,
+      qcMinChars: RESEARCH_DEFAULTS.TIKTOK_QC_MIN_CHARS,
+    };
+  }
+  return {
+    targetPending: RESEARCH_DEFAULTS.TARGET_PENDING,
+    qcMinChars: RESEARCH_DEFAULTS.QC_MIN_CHARS,
+  };
 }
 
 // =============================================================================
@@ -273,6 +300,7 @@ export interface ResearchEventBase {
 export interface ResearchStartedEvent extends ResearchEventBase {
   type: 'research:started';
   theme: string;
+  platform: ResearchPlatform;
 }
 
 export interface ResearchStageStartedEvent extends ResearchEventBase {

@@ -3,31 +3,43 @@
  * Main pipeline coordinator that runs 4 stages:
  * Stage 2: Reddit Search → Stage 3: Quote Extraction → Stage 4: QC → Stage 5: Enrichment
  * Note: Stage 1 (Query Generation) removed - queries now provided externally by Claude
+ *
+ * Storage: local SQLite (see src/config/db.ts). Reddit search: SerpAPI (Google).
  */
 
 import crypto from 'crypto';
-import { supabase } from '../config/supabase.js';
+import * as db from '../config/db.js';
 import { GeminiResearchService } from './gemini-research.service.js';
-import { ScrapeCreatorsService } from './scrape-creators.service.js';
+import { SerpApiRedditService } from './serpapi.service.js';
+import { ScrapeCreatorsTikTokService } from './scrapecreators-tiktok.service.js';
 import { researchEvents } from './research-events.service.js';
 import {
   RESEARCH_DEFAULTS,
+  getPlatformDefaults,
   type ResearchRunInput,
   type ResearchProject,
   type ResearchJob,
-  type ResearchQuote,
   type RedditSource,
   type PipelineResult,
-  type ResearchJobCounters,
+  type ResearchPlatform,
 } from './research.types.js';
+
+interface SearchService {
+  searchForSources(query: string): Promise<RedditSource[]>;
+}
 
 export class ResearchOrchestratorService {
   private gemini: GeminiResearchService;
-  private scrapeCreators: ScrapeCreatorsService;
 
   constructor() {
     this.gemini = new GeminiResearchService();
-    this.scrapeCreators = new ScrapeCreatorsService();
+  }
+
+  private createSearchService(platform: ResearchPlatform): SearchService {
+    if (platform === 'tiktok') {
+      return new ScrapeCreatorsTikTokService();
+    }
+    return new SerpApiRedditService();
   }
 
   /**
@@ -46,6 +58,9 @@ export class ResearchOrchestratorService {
    */
   async runPipeline(input: ResearchRunInput, userId: string): Promise<PipelineResult> {
     const startTime = Date.now();
+    const platform: ResearchPlatform = input.platform ?? 'reddit';
+    const platformDefaults = getPlatformDefaults(platform);
+    const search = this.createSearchService(platform);
     let project: ResearchProject | null = null;
     let job: ResearchJob | null = null;
 
@@ -54,60 +69,55 @@ export class ResearchOrchestratorService {
 
     try {
       // 1. Create project
-      const { data: projectData, error: projectError } = await supabase
-        .from('research_projects')
-        .insert({
-          user_id: userId,
-          theme: input.theme,
-          theme_definition: input.theme_definition || null,
-          client: input.client || null,
-          time_window_days: RESEARCH_DEFAULTS.TIME_WINDOW_DAYS,
-        })
-        .select()
-        .single();
-
-      if (projectError) {
-        throw new Error(`Failed to create project: ${projectError.message}`);
-      }
-      project = projectData as ResearchProject;
+      project = db.createProject({
+        user_id: userId,
+        theme: input.theme,
+        theme_definition: input.theme_definition || null,
+        client: input.client || null,
+        time_window_days: RESEARCH_DEFAULTS.TIME_WINDOW_DAYS,
+      });
 
       // 2. Create job with provided queries (Claude always provides these)
-      const { data: jobData, error: jobError } = await supabase
-        .from('research_jobs')
-        .insert({
-          project_id: project.id,
-          status: 'running',
-          current_step: 'search', // Start directly at search (queries provided externally)
-          counters: {
-            pending_ingested: 0,
-            quotes_extracted: 0,
-            kept: 0,
-            rejected: 0,
-            enriched: 0,
-          },
-          config: { search_queries: input.queries }, // Use provided queries
-          started_at: new Date().toISOString(),
-        })
-        .select()
-        .single();
+      job = db.createJob({
+        project_id: project.id,
+        status: 'running',
+        current_step: 'search', // Start directly at search (queries provided externally)
+        counters: {
+          pending_ingested: 0,
+          quotes_extracted: 0,
+          kept: 0,
+          rejected: 0,
+          enriched: 0,
+        },
+        config: { search_queries: input.queries, platform },
+        started_at: new Date().toISOString(),
+      });
 
-      if (jobError) {
-        throw new Error(`Failed to create job: ${jobError.message}`);
-      }
-      job = jobData as ResearchJob;
-
-      researchEvents.emitResearchStarted(job.id, project.id, input.theme);
+      researchEvents.emitResearchStarted(job.id, project.id, input.theme, platform);
       researchEvents.emitResearchLog(
         job.id,
         project.id,
-        `Starting research for theme: "${input.theme}" with ${input.queries.length} queries`
+        `Starting research for theme: "${input.theme}" on ${platform} with ${input.queries.length} queries`
       );
 
-      // Stage 2: Reddit search (queries already in job config)
-      tempSources = await this.runStage2_RedditSearch(project, job);
+      // Stage 2: Platform search (queries already in job config)
+      tempSources = await this.runStage2_Search(
+        project,
+        job,
+        search,
+        platform,
+        platformDefaults.targetPending
+      );
 
       // Stage 3: Quote extraction
-      await this.runStage3_QuoteExtraction(project, job, input, tempSources);
+      await this.runStage3_QuoteExtraction(
+        project,
+        job,
+        input,
+        tempSources,
+        platform,
+        platformDefaults.qcMinChars
+      );
 
       // Stage 4: Quality control
       await this.runStage4_QualityControl(project, job, input);
@@ -116,15 +126,12 @@ export class ResearchOrchestratorService {
       await this.runStage5_Enrichment(project, job);
 
       // Mark job completed
-      const finalCounters = await this.getJobCounters(project.id);
-      await supabase
-        .from('research_jobs')
-        .update({
-          status: 'completed',
-          counters: finalCounters,
-          completed_at: new Date().toISOString(),
-        })
-        .eq('id', job.id);
+      const finalCounters = db.getJobCounters(project.id);
+      db.updateJob(job.id, {
+        status: 'completed',
+        counters: finalCounters,
+        completed_at: new Date().toISOString(),
+      });
 
       researchEvents.emitResearchCompleted(
         job.id,
@@ -144,15 +151,12 @@ export class ResearchOrchestratorService {
       console.error('Pipeline failed:', error);
 
       if (job && project) {
-        const counters = await this.getJobCounters(project.id);
-        await supabase
-          .from('research_jobs')
-          .update({
-            status: 'failed',
-            last_error: error instanceof Error ? error.message : String(error),
-            counters,
-          })
-          .eq('id', job.id);
+        const counters = db.getJobCounters(project.id);
+        db.updateJob(job.id, {
+          status: 'failed',
+          last_error: error instanceof Error ? error.message : String(error),
+          counters,
+        });
 
         researchEvents.emitResearchError(
           job.id,
@@ -180,28 +184,25 @@ export class ResearchOrchestratorService {
   }
 
   /**
-   * Stage 2: Reddit search ingestion
-   * (Stage 1 removed - queries now provided externally by Claude)
+   * Stage 2: Platform search ingestion
    */
-  private async runStage2_RedditSearch(
+  private async runStage2_Search(
     project: ResearchProject,
-    job: ResearchJob
+    job: ResearchJob,
+    search: SearchService,
+    platform: ResearchPlatform,
+    targetPending: number
   ): Promise<RedditSource[]> {
+    const platformLabel = platform === 'tiktok' ? 'TikTok via ScrapeCreators' : 'Reddit via SerpAPI (Google)';
     researchEvents.emitStageStarted(
       job.id,
       project.id,
       'search',
-      'Searching Reddit via ScrapeCreators...'
+      `Searching ${platformLabel}...`
     );
 
     // Get queries from job config
-    const { data: jobData } = await supabase
-      .from('research_jobs')
-      .select('config')
-      .eq('id', job.id)
-      .single();
-
-    const queries: string[] = (jobData?.config as { search_queries?: string[] })?.search_queries || [];
+    const queries: string[] = db.getJobConfig(job.id).search_queries || [];
     const allSources: RedditSource[] = [];
     const seenSourceIds = new Set<string>();
 
@@ -219,7 +220,7 @@ export class ResearchOrchestratorService {
       );
 
       try {
-        const sources = await this.scrapeCreators.searchForSources(query);
+        const sources = await search.searchForSources(query);
 
         // Dedupe by source_id
         for (const source of sources) {
@@ -238,35 +239,32 @@ export class ResearchOrchestratorService {
       }
 
       // Check if we've reached target_pending
-      if (allSources.length >= RESEARCH_DEFAULTS.TARGET_PENDING) {
+      if (allSources.length >= targetPending) {
         researchEvents.emitResearchLog(
           job.id,
           project.id,
-          `Reached target_pending (${RESEARCH_DEFAULTS.TARGET_PENDING}), stopping search`
+          `Reached target_pending (${targetPending}), stopping search`
         );
         break;
       }
     }
 
     // Update job counters
-    await supabase
-      .from('research_jobs')
-      .update({
-        current_step: 'extract',
-        counters: {
-          pending_ingested: allSources.length,
-          quotes_extracted: 0,
-          kept: 0,
-          rejected: 0,
-          enriched: 0,
-        },
-      })
-      .eq('id', job.id);
+    db.updateJob(job.id, {
+      current_step: 'extract',
+      counters: {
+        pending_ingested: allSources.length,
+        quotes_extracted: 0,
+        kept: 0,
+        rejected: 0,
+        enriched: 0,
+      },
+    });
 
     researchEvents.emitResearchLog(
       job.id,
       project.id,
-      `Ingested ${allSources.length} unique Reddit sources`
+      `Ingested ${allSources.length} unique ${platform} sources`
     );
     researchEvents.emitStageCompleted(
       job.id,
@@ -286,7 +284,9 @@ export class ResearchOrchestratorService {
     project: ResearchProject,
     job: ResearchJob,
     input: ResearchRunInput,
-    sources: RedditSource[]
+    sources: RedditSource[],
+    platform: ResearchPlatform,
+    qcMinChars: number
   ): Promise<void> {
     researchEvents.emitStageStarted(
       job.id,
@@ -315,33 +315,27 @@ export class ResearchOrchestratorService {
 
         // Insert quotes into database
         for (const q of quotes) {
-          if (q.verbatim_text.length < RESEARCH_DEFAULTS.QC_MIN_CHARS) {
+          if (q.verbatim_text.length < qcMinChars) {
             continue;
           }
 
           const hash = this.hashQuote(q.verbatim_text);
 
-          const { error } = await supabase.from('research_quotes').upsert(
-            {
-              project_id: project.id,
-              job_id: job.id,
-              platform: 'reddit',
-              source_id: source.source_id,
-              source_url: source.source_url,
-              created_at_platform: source.created_at_platform,
-              subreddit: source.subreddit,
-              engagement: source.engagement,
-              quote_text: q.verbatim_text,
-              quote_text_hash: hash,
-              status: 'pending',
-            },
-            {
-              onConflict: 'platform,source_id,quote_text_hash',
-              ignoreDuplicates: true,
-            }
-          );
+          const inserted = db.insertQuote({
+            project_id: project.id,
+            job_id: job.id,
+            platform,
+            source_id: source.source_id,
+            source_url: source.source_url,
+            created_at_platform: source.created_at_platform,
+            subreddit: source.subreddit,
+            engagement: source.engagement,
+            quote_text: q.verbatim_text,
+            quote_text_hash: hash,
+            status: 'pending',
+          });
 
-          if (!error) {
+          if (inserted) {
             extractedCount++;
           }
         }
@@ -368,10 +362,7 @@ export class ResearchOrchestratorService {
       }
     }
 
-    await supabase
-      .from('research_jobs')
-      .update({ current_step: 'qc' })
-      .eq('id', job.id);
+    db.updateJob(job.id, { current_step: 'qc' });
 
     researchEvents.emitResearchLog(
       job.id,
@@ -403,22 +394,13 @@ export class ResearchOrchestratorService {
     );
 
     // Get pending quotes ordered by engagement score (highest first)
-    const { data: pendingQuotes, error } = await supabase
-      .from('research_quotes')
-      .select('*')
-      .eq('project_id', project.id)
-      .eq('status', 'pending')
-      .order('engagement->score', { ascending: false });
-
-    if (error) {
-      throw new Error(`Failed to fetch quotes: ${error.message}`);
-    }
+    const pendingQuotes = db.getPendingQuotesByEngagement(project.id);
 
     let keptCount = 0;
     let rejectedCount = 0;
     let processedCount = 0;
 
-    for (const quote of pendingQuotes || []) {
+    for (const quote of pendingQuotes) {
       // Stop when we've reached target_kept
       if (keptCount >= RESEARCH_DEFAULTS.TARGET_KEPT) {
         researchEvents.emitResearchLog(
@@ -436,7 +418,7 @@ export class ResearchOrchestratorService {
           input.theme_definition
         );
 
-        const updateData: Partial<ResearchQuote> = {
+        db.updateQuoteQC(quote.id, {
           status: result.decision === 'keep' ? 'kept' : 'rejected',
           reject_reason: result.reject_reason,
           qc_confidence: result.confidence,
@@ -444,12 +426,7 @@ export class ResearchOrchestratorService {
           qc_prompt_version: this.gemini.getPromptVersion('QUALITY_CONTROL'),
           qc_raw: raw as Record<string, unknown>,
           qc_at: new Date().toISOString(),
-        };
-
-        await supabase
-          .from('research_quotes')
-          .update(updateData)
-          .eq('id', quote.id);
+        });
 
         if (result.decision === 'keep') {
           keptCount++;
@@ -481,10 +458,7 @@ export class ResearchOrchestratorService {
       }
     }
 
-    await supabase
-      .from('research_jobs')
-      .update({ current_step: 'enrich' })
-      .eq('id', job.id);
+    db.updateJob(job.id, { current_step: 'enrich' });
 
     researchEvents.emitResearchLog(
       job.id,
@@ -515,24 +489,15 @@ export class ResearchOrchestratorService {
     );
 
     // Get all kept quotes that haven't been enriched
-    const { data: keptQuotes, error } = await supabase
-      .from('research_quotes')
-      .select('*')
-      .eq('project_id', project.id)
-      .eq('status', 'kept')
-      .is('enriched_at', null);
-
-    if (error) {
-      throw new Error(`Failed to fetch kept quotes: ${error.message}`);
-    }
+    const keptQuotes = db.getKeptQuotesNotEnriched(project.id);
 
     let enrichedCount = 0;
 
-    for (const quote of keptQuotes || []) {
+    for (const quote of keptQuotes) {
       try {
         const { result, raw } = await this.gemini.enrichQuote(quote.quote_text);
 
-        const updateData: Partial<ResearchQuote> = {
+        db.updateQuoteEnrichment(quote.id, {
           dominant_emotion: result.dominant_emotion,
           journey_stage: result.journey_stage,
           villain: result.villain,
@@ -544,12 +509,7 @@ export class ResearchOrchestratorService {
           prompt_version: this.gemini.getPromptVersion('ENRICHMENT'),
           llm_raw: raw as Record<string, unknown>,
           enriched_at: new Date().toISOString(),
-        };
-
-        await supabase
-          .from('research_quotes')
-          .update(updateData)
-          .eq('id', quote.id);
+        });
 
         enrichedCount++;
       } catch (error) {
@@ -568,9 +528,9 @@ export class ResearchOrchestratorService {
           project.id,
           'enrich',
           enrichedCount,
-          keptQuotes?.length || 0,
-          Math.round((enrichedCount / (keptQuotes?.length || 1)) * 100),
-          `Enriched ${enrichedCount} of ${keptQuotes?.length}`
+          keptQuotes.length,
+          Math.round((enrichedCount / (keptQuotes.length || 1)) * 100),
+          `Enriched ${enrichedCount} of ${keptQuotes.length}`
         );
       }
     }
@@ -587,33 +547,5 @@ export class ResearchOrchestratorService {
       { enriched: enrichedCount },
       `Enriched ${enrichedCount} quotes`
     );
-  }
-
-  /**
-   * Get current job counters from database
-   */
-  private async getJobCounters(projectId: string): Promise<ResearchJobCounters> {
-    const { data: quotes } = await supabase
-      .from('research_quotes')
-      .select('status, enriched_at')
-      .eq('project_id', projectId);
-
-    if (!quotes) {
-      return {
-        pending_ingested: 0,
-        quotes_extracted: 0,
-        kept: 0,
-        rejected: 0,
-        enriched: 0,
-      };
-    }
-
-    return {
-      pending_ingested: quotes.length,
-      quotes_extracted: quotes.length,
-      kept: quotes.filter((q) => q.status === 'kept').length,
-      rejected: quotes.filter((q) => q.status === 'rejected').length,
-      enriched: quotes.filter((q) => q.enriched_at).length,
-    };
   }
 }

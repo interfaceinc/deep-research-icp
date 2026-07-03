@@ -4,11 +4,14 @@ import { z } from 'zod';
 dotenv.config();
 
 const envSchema = z.object({
-  SUPABASE_URL: z.string().url(),
-  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
-
   GOOGLE_GENAI_API_KEY: z.string().min(1),
-  SCRAPE_CREATORS_API_KEY: z.string().min(1),
+  SERPAPI_KEY: z.string().min(1),
+  SCRAPECREATORS_API_KEY: z.string().optional(),
+
+  // Local SQLite (dev) or /tmp on Vercel (ephemeral — see README deploy notes)
+  RESEARCH_DB_PATH: z
+    .string()
+    .default(process.env.VERCEL ? '/tmp/research.db' : 'research.db'),
 });
 
 function validateEnv() {

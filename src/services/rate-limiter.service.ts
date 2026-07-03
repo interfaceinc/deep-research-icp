@@ -1,9 +1,9 @@
 /**
  * Research Rate Limiter Service
- * Handles rate limiting for ScrapeCreators and Gemini APIs
+ * Handles rate limiting for the search API and Gemini APIs
  */
 
-import { RESEARCH_DEFAULTS } from './research.types.js';
+const DEFAULT_DELAY_MS = 300;
 
 export class ResearchRateLimiter {
   private lastCallTime: number = 0;
@@ -12,9 +12,7 @@ export class ResearchRateLimiter {
   /**
    * Wait for rate limit before making a call
    */
-  async waitForRateLimit(
-    delayMs: number = RESEARCH_DEFAULTS.SCRAPE_CREATORS_DELAY_MS
-  ): Promise<void> {
+  async waitForRateLimit(delayMs: number = DEFAULT_DELAY_MS): Promise<void> {
     const now = Date.now();
     const timeSinceLastCall = now - this.lastCallTime;
 
